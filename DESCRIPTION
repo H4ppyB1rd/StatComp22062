@@ -1,0 +1,16 @@
+Package: StatComp22062
+Type: Package
+Title: Homework for 'Statistical Computing' course and an implement of adaptive best-subset selection
+Version: 1.0
+Date: 2022-12-03
+Author: 22062
+Maintainer: 22062 <lizardplanet@mail.ustc.edu.cn>
+Description: Several R and Rcpp function are included in this package for illustration. 
+License: GPL (>= 2)
+Imports: Rcpp, microbenchmark, knitr, rmarkdown, kableExtra, boot, bootstrap, DAAG, mediation, mvtnorm, abess
+LinkingTo: Rcpp
+RoxygenNote: 7.2.2
+Encoding: UTF-8
+VignetteBuilder: knitr
+URL: http://github.com/H4ppyB1rd/StatComp22062
+BugReports: http://github.com/H4ppyB1rd/StatComp22062/issues

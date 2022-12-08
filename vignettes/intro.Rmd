@@ -1,0 +1,281 @@
+---
+title: "intro"
+author: "22062"
+date: "2022/10/27"
+output: rmarkdown::html_vignette
+vignette: >
+ %\VignetteIndexEntry{intro}
+ %\VignetteEngine{knitr::rmarkdown}
+ %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Overview
+
+StatComp22062 is a simple R package developed to include all my solutions to the homework of this term's Statistical Computation, and to reproduce the methods of the Adaptive Best-Subset Selection (ABESS) algorithm according to its thesis, A polynomial algorithm for best-subset selection problem. The ABESS algorithm is an polynomial algorithm for solving the problem of best-subset selection based on a splicing technique and an information criterion. It actually already has an official package, and I am only reproducing the algorithm with my own written code, so it is very likely that the performance of my package falls far behind the official package. In this package, the 'myABESS' function is used to gain the wanted sparse coefficient vector  once the largest support size we allow is given. And it does this through the BessFix function which gives the result when the support size is fixed. The splicing method is proposed in the 'Spliing' function. These functions can help us find the true sparsity level and the corresponding best-subset.  
+
+
+## Source Codes for the algorithm
+
+### the l2NormSq and matmultC function
+
+The l2NormSq and matmultC functions compute the square of l2 norm of vectors and the result of matrix multiplication respectively. The matmultC function is coded in cpp to make the matrix multiplication faster. Their source codes are as follows.  
+```{r eval=TRUE}
+l2NormSq = function(b){
+  return( crossprod(b,b)[1,1] )
+}
+
+```
+
+```{r}
+library(Rcpp)
+```
+
+```{Rcpp}
+#include <Rcpp.h>
+using namespace Rcpp;
+
+// [[Rcpp::export]]
+NumericMatrix matmultC(NumericMatrix matA, NumericMatrix matB) {
+  int m = matA.nrow(), n = matA.ncol(), p = matB.ncol();
+  double stemp = 0;
+  NumericMatrix matC(m, p);
+  for(int i=0;i<m;++i) {
+    for(int k=0;k<n;++k) {
+      stemp = matA(i,k);
+      for(int j=0;j<p;++j){
+        matC(i,j) += stemp*matB(k,j);
+      }
+    }
+  }
+  return(matC);
+}
+
+```
+
+
+  
+### the Splicing function
+
+This function works for a condition with fixed initial active set and is trying to solve the constraint minimization problem:
+$$min_{\beta} L_{n} \left ( \beta \right ),  s.t    {||\beta ||}_{0}\le s $$
+where $$ L_{n} \left ( \mathbf{\beta}  \right )=\frac{1}{2n}||\mathbf{y}-\mathbf{X}\mathbf{\beta} ||_{2}^{2}  $$
+To determine which variables are important, we define the active set for a given k:
+$$A_k=\left \{ j\in A:\sum I(\xi_j \ge \xi_i)\le k \right \} $$
+Then, we iteratively update the active set for any splicing size k that is no larger than s, based on the Backward sacrifice(the signifance of variable j in the active set, defined by the loss of discarding it) and the Forward sacrifice(the signifance of variable j in the non-active set, defined by the gain of adding it to the active set).  The updating iteration is stopped when the loss function cannot be improved by further splicing.  
+  
+
+The source code for the splicing algorithm is as follows:  
+```{r eval=TRUE}
+Splicing = function(beta, d, setA, setI, kmax, TAWs,    n,p,x,y){
+  sizeA=length(setA)
+  sizeI=length(setI)
+  x=as.matrix(x)
+  beta = as.matrix(beta)
+  
+  L0=L= l2NormSq( y - matmultC(x,beta))/2/n
+
+  SacBack=SacFort=c()
+  for (j in 1:p) {
+    xj=x[,j]
+    temp = (t(xj)%*%xj)[1,1]
+    SacBack=c(SacBack,temp/2/n*beta[j]^2)
+    SacFort=c(SacFort,temp/2/n*(d[j]/temp*n)^2)
+  }
+
+
+  for (k in 1:kmax) {
+    setAk=c()
+    for (j in setA) {
+      if( sum( SacBack[j]>=SacBack[setA] )<=k ){
+        setAk=c(setAk,j)
+      }
+    }
+    setIk=c()
+    for (j in setI) {
+      if( sum( SacFort[j]<=SacFort[setI] )<=k ){
+        setIk=c(setIk,j)
+      }
+    }
+    
+    setAk_wav= union(setdiff(setA,setAk),setIk)
+    setIk_wav= union(setdiff(setI,setIk),setAk)
+
+    beta_wav=as.matrix(rep(0,p))
+    xak_wav=as.matrix(x[,setAk_wav])
+    beta_wav[setAk_wav]= matmultC(matmultC(solve( matmultC(t(xak_wav),xak_wav) ),t(xak_wav)),y)
+    beta_wav[setIk_wav]=0
+    d_wav= matmultC(t(x), ( y - matmultC(x, beta_wav)  ) )/n
+    Lnbeta_wav = l2NormSq( y - matmultC(x, beta_wav)  )/2/n
+
+    if( L>Lnbeta_wav ){
+      beta_hat=beta_wav
+      d_hat=d_wav
+      setA_hat=setAk_wav
+      setI_hat=setIk_wav
+      
+      L=Lnbeta_wav
+    }
+  }
+  
+  if( L0-L<TAWs ){
+    beta_hat=beta
+    d_hat=d
+    setA_hat=setA
+    setI_hat=setI    
+  }
+  
+  return( list( "bet"=beta_hat[,1],"d"=d_hat,"A"=setA_hat,"I"=setI_hat  ,"L"=L ) )
+}
+
+```
+
+### the Abess and BessFix function
+
+To determine what might be the best possible choice for the supporting size, 
+we use a criterion denoted as SIC for an active set A:
+$$SIC(A)=nlogL_{A} +|A|log(p)loglogn$$
+where $$L_{A} =min_{ \beta _{I} =0 } L_n(\beta ),I=A^{c} $$
+so we can use this criterion to find the true  support size.  
+And given a fixed support size s, BessFixed is used to perform best-subset selection.  
+Their source codes are as follows.  
+```{r eval=TRUE}
+BessFix = function(s,x,y,kmax,TAWs,   n,p,corrsY){
+  setA = c()
+  for (j in 1:p) {
+    if( sum( corrsY[j]<=corrsY ) <= s   ){
+      setA = c(setA,j)
+    }
+  }
+  setI = setdiff(c(1:p),setA)
+
+  x = as.matrix(x)
+  beta=d=as.matrix(rep(0,p))
+  xA = as.matrix(x[,setA])
+  xI = as.matrix(x[,setI])
+  
+  beta[setA] = (matmultC(matmultC((solve(  matmultC(t(xA),xA))  ) , t(xA)) , y ) )[1,1]
+  d[setI] = ( matmultC( t(xI),(y-matmultC(x,beta)) ) )[1,1] /n
+  
+  while (1) {
+    news = Splicing(beta=beta,d=d,setA = setA,setI = setI,kmax=kmax,TAWs = TAWs,   n,p,x,y)
+
+    beta1 = news[[1]]
+    d1=news[[2]]
+    setA1=news[[3]]
+    setI1=news[[4]]
+    L1=news[[5]]
+
+
+    if( setequal(setA1,setA) & setequal(setI1,setI) ){
+      break
+    }
+    else{
+      beta = beta1
+      d = d1
+      setA = setA1
+      setI = setI1
+    }
+  }
+  
+  return(  list("bet"=beta1,"d"=d1,"A"=setA1,"I"=setI1,  "L"=L1) )
+}
+
+myABESS = function(x,y,n,p, 
+                   smax=min(p,floor( n/log(p)/log(log(n)) ) )
+                   ){
+  corrsY=vector(length = p)
+  for (i in 1:p) {
+    xi=x[,i]
+    corrsY[i] = abs( crossprod(xi,y)[1,1] )/sqrt( crossprod(xi,xi)[1,1] )
+  }
+
+  
+  data = vector(mode="list",length = smax)
+  SIC = Ls = vector(length = smax)
+  for (s in 1:smax) {
+    taws=1e-2*s*log(p)*log(log(n))/n
+    kmax = s
+    data[[s]] = BessFix(s = s, x = x, y = y, kmax = kmax, TAWs = taws, n = n, p = p,corrsY = corrsY)
+    Ls[s] = (data[[s]])[[5]]
+    SIC[s] = n*log(Ls[s]) + length( (data[[s]])[[3]] )*log(p)*log(log(n))
+  }
+  
+  best_s = which.min(SIC)
+  return( list( "result"=data[[ best_s ]], "SIC"=SIC, "BestSize"=best_s  ) )
+  
+}
+
+```
+
+
+## An Illustration
+
+The following is an illustration of how the functions are used and their performance. The number of observations is set to be n=60, and the dimension of the coefficient vector is set to p=20. As we can see in the following chunk, the coefficient vector is a sparse vector with only few non-zero values as its support set. Now we generate predictors and responses in the following manner: 
+```{r eval=TRUE}
+library(mvtnorm)
+
+seed=0
+set.seed(seed)
+n=60
+eps_sig=1   # for epsilon
+
+p = 20
+beta= c(16,0,0,0,0,
+        18,0,0,14,0,
+        rep(0,p-10)
+        )
+
+sig=matrix(0, nrow=p,ncol=p)  # matrix, for X the matrix
+sig= 0.5^( abs( row(sig)-col(sig) ) )
+
+x=rmvnorm(n,mean=rep(0,p),sigma=sig)
+x=scale(x,center = T,scale = F)
+y = rnorm(n, mean=x %*% beta, eps_sig)
+
+x=as.matrix(x)
+y=as.matrix(y)
+syn_sim_data = list( "x"=x,"y"=y,"beta"=beta )
+dat = cbind.data.frame("y" = syn_sim_data[["y"]],
+                        syn_sim_data[["x"]])
+
+
+```
+
+The following is the result of the implemented abess algorithm. The estimated cofficients are presented as beta,  the active set as A (with inactive set as I), and they are consistant with the initial cofficients we set earlier, along with the best support size. The performance of the implemented method is quite precise compared to the real value.  
+
+```{r eval=TRUE}
+res=myABESS(x,y,n,p,smax = p-1)
+res$result[-2]  # hide d;
+print(paste("Best size: ",res$BestSize))
+
+```
+
+## Comparison with the official package
+
+The following is a runtime comparison on my reproduced package and the official package for abess algorithm. Not only does the official package have far more functions and choices for the algorithm, but only it runs much faster. It is obvious from the benchmark comparison that the official package has far better performance in its speed.   
+
+```{r}
+library(abess)
+library(microbenchmark)
+
+
+ts <- microbenchmark('with my package'=myABESS(x,y,n,p,smax = p-1),
+                     'with Official package'=abess(x,y,family = "gaussian"))
+summary(ts)[,c(1,3,5,6)]
+
+```
+
+And possible reasons for this huge difference may include that the official package is written in a larger proportion of rcpp instead of R while only very limited parts of my package used the same way to reduce runtime. Also too much use of list and some unnecessary calculations(like calculating both sacrifices for all number between 1 and p) makes the functions slower.  
+
+
+```{r}
+# remove all at the end:
+rm(list=ls())
+```
+
+
