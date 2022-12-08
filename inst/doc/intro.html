@@ -619,9 +619,9 @@ the official package has far better performance in its speed.</p>
 <span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>ts <span class="ot">&lt;-</span> <span class="fu">microbenchmark</span>(<span class="st">&#39;with my package&#39;</span><span class="ot">=</span><span class="fu">myABESS</span>(x,y,n,p,<span class="at">smax =</span> p<span class="dv">-1</span>),</span>
 <span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>                     <span class="st">&#39;with Official package&#39;</span><span class="ot">=</span><span class="fu">abess</span>(x,y,<span class="at">family =</span> <span class="st">&quot;gaussian&quot;</span>))</span>
 <span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(ts)[,<span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">3</span>,<span class="dv">5</span>,<span class="dv">6</span>)]</span></code></pre></div>
-<pre><code>##                    expr         lq   median         uq
-## 1       with my package 105.782251 110.0283 114.210300
-## 2 with Official package   2.044802   2.1527   2.275951</code></pre>
+<pre><code>##                    expr         lq     median         uq
+## 1       with my package 114.260502 116.533801 121.894401
+## 2 with Official package   2.078851   2.174501   2.311852</code></pre>
 <p>And possible reasons for this huge difference may include that the
 official package is written in a larger proportion of rcpp instead of R
 while only very limited parts of my package used the same way to reduce
